@@ -1,0 +1,926 @@
+{%- comment -%}
+  Clothing rail — products hang from a sagging rail and the shopper scrolls,
+  swipes or drags along it. The garment nearest the centre comes forward and
+  its title and price show under the rail. Hovering a garment turns it on its
+  hook.
+
+  Image per product, first match wins:
+    1. product.metafields.custom.rail_image (file reference, image) — a
+       cut-out or ghost-mannequin shot uploaded just for the rail
+    2. the image chosen in the section's "Image to use" setting
+
+  Behaviour lives in assets/clothing-rail.js. Without JS the rail is still a
+  plain horizontally scrolling list of product links.
+{%- endcomment -%}
+
+<script
+  src="{{ 'clothing-rail.js' | asset_url }}"
+  type="module"
+  fetchpriority="low"
+></script>
+
+{% liquid
+  assign collection = section.settings.collection
+  assign max_items = section.settings.max_products
+
+  if section.settings.background_color != blank
+    render 'contrast-override', background_color: section.settings.background_color, section_id: section.id
+  endif
+
+  # Horizon pre-fills colour settings from the palette, which can leave the
+  # rail the same colour as the background. Only use a rail colour that
+  # actually shows against what is behind it.
+  assign rail_color = section.settings.rail_color
+  assign rail_backdrop = section.settings.background_color | default: settings.color_palette.background | default: '#ffffff'
+  if rail_color != blank
+    if rail_color.alpha == 0
+      assign rail_color = blank
+    else
+      assign rail_contrast = rail_color | color_contrast: rail_backdrop
+      if rail_contrast < 2
+        assign rail_color = blank
+      endif
+    endif
+  endif
+
+  assign link_url = section.settings.link_url
+  if link_url == blank and collection != blank
+    assign link_url = collection.url
+  endif
+%}
+
+<div
+  class="section-background{% if section.settings.background_color != blank %} color-custom-{{ section.id }}{% endif %}"
+></div>
+<clothing-rail
+  class="section spacing-style crail{% if section.settings.background_color != blank %} color-custom-{{ section.id }}{% endif %}{% if section.settings.blend_white %} crail--blend{% endif %}{% if section.settings.rail_style == 'chrome' %} crail--chrome{% endif %}"
+  style="
+    {% render 'spacing-style', settings: section.settings %}
+    --crail-sag: {{ section.settings.sag }};
+    --crail-scale: {{ section.settings.focus_scale | divided_by: 100.0 }};
+    --crail-trim: {{ section.settings.photo_trim }};
+    --crail-size: {{ section.settings.garment_size | divided_by: 100.0 }};
+    --crail-spacing: {{ section.settings.garment_spacing }};
+    --crail-metal: url(#crail-metal-{{ section.id }});
+    {% if rail_color != blank %}--crail-rail: {{ rail_color }};{% endif %}
+  "
+  data-sag="{{ section.settings.sag }}"
+>
+  {%- if section.settings.heading != blank -%}
+    <h2 class="crail__heading">{{ section.settings.heading | escape }}</h2>
+  {%- endif -%}
+
+  <div class="crail__stage">
+    <svg
+      class="crail__rail"
+      viewBox="0 0 100 {{ section.settings.sag | plus: 4 }}"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        <linearGradient id="crail-metal-{{ section.id }}" gradientUnits="userSpaceOnUse" x1="14" y1="0" x2="27" y2="0">
+          <stop offset="0" stop-color="#6f747b" />
+          <stop offset="0.45" stop-color="#e4e6e9" />
+          <stop offset="0.6" stop-color="#b9bdc3" />
+          <stop offset="1" stop-color="#5d6168" />
+        </linearGradient>
+      </defs>
+      {%- assign rail_d = section.settings.sag | times: 2 | plus: 2 -%}
+      <path class="crail__rail-tube" d="M0 2 Q50 {{ rail_d }} 100 2" vector-effect="non-scaling-stroke" />
+      <path class="crail__rail-shade" d="M0 2 Q50 {{ rail_d }} 100 2" vector-effect="non-scaling-stroke" />
+      <path class="crail__rail-shine" d="M0 2 Q50 {{ rail_d }} 100 2" vector-effect="non-scaling-stroke" />
+    </svg>
+
+    <ul
+      class="crail__track"
+      role="list"
+      aria-label="{{ section.settings.heading | default: collection.title | default: 'Clothing rail' | escape }}"
+    >
+      {%- if collection != blank and collection.products_count > 0 -%}
+        {%- for product in collection.products limit: max_items -%}
+          {% liquid
+            assign image = product.metafields.custom.rail_image.value
+            if image == blank
+              case section.settings.image_source
+                when 'second'
+                  assign image = product.images[1] | default: product.featured_image
+                when 'last'
+                  assign image = product.images.last | default: product.featured_image
+                else
+                  assign image = product.featured_image
+              endcase
+            endif
+            # Hover image: the product's second image, or its first when the
+            # front already shows the second.
+            assign back_image = blank
+            if section.settings.hover_second_image and product.images.size > 1
+              assign back_image = product.images[1]
+              if back_image.id == image.id
+                assign back_image = product.images[0]
+              endif
+            endif
+
+            assign price = product.price | money
+            if product.price_varies
+              assign price = 'content.price_from' | t: price: price
+            endif
+          %}
+          <li
+            class="crail__item{% if back_image != blank %} crail__item--flip{% endif %}"
+            {% if image != blank %}style="--crail-ratio: {{ image.aspect_ratio | at_least: 0.5 | at_most: 1.25 }};"{% endif %}
+          >
+            <a
+              class="crail__garment"
+              href="{{ product.url }}"
+              aria-label="{{ product.title | escape }}, {{ price | strip_html | escape }}"
+              data-title="{{ product.title | escape }}"
+              data-price="{{ price | strip_html | escape }}"
+            >
+              <span class="crail__swing">
+                {% render 'clothing-rail-hook' %}
+                <span class="crail__tag" aria-hidden="true">{{ price | strip_html }}</span>
+                <span class="crail__media">
+                  {%- if image != blank -%}
+                    {{
+                      image
+                      | image_url: width: 900
+                      | image_tag:
+                        loading: 'lazy',
+                        sizes: '(min-width: 750px) 22vw, 50vw',
+                        widths: '300, 450, 600, 900',
+                        alt: '',
+                        class: 'crail__img crail__face',
+                        draggable: 'false'
+                    }}
+                    {%- if back_image != blank -%}
+                      {{
+                        back_image
+                        | image_url: width: 900
+                        | image_tag:
+                          loading: 'lazy',
+                          sizes: '(min-width: 750px) 22vw, 50vw',
+                          widths: '300, 450, 600, 900',
+                          alt: '',
+                          class: 'crail__img crail__face crail__face--back',
+                          draggable: 'false'
+                      }}
+                    {%- endif -%}
+                  {%- else -%}
+                    {{ 'product-apparel-1' | placeholder_svg_tag: 'crail__img crail__img--placeholder' }}
+                  {%- endif -%}
+                </span>
+              </span>
+            </a>
+          </li>
+        {%- endfor -%}
+      {%- else -%}
+        {%- for i in (1..max_items) -%}
+          {%- capture placeholder -%}product-apparel-{{ forloop.index | modulo: 4 | plus: 1 }}{%- endcapture -%}
+          <li class="crail__item">
+            <span
+              class="crail__garment"
+              tabindex="0"
+              aria-label="Sample product"
+              data-title="Sample product"
+              data-price="{{ 9900 | money | strip_html }}"
+            >
+              <span class="crail__swing">
+                {% render 'clothing-rail-hook' %}
+                <span class="crail__tag" aria-hidden="true">{{ 9900 | money | strip_html }}</span>
+                <span class="crail__media">
+                  {{ placeholder | placeholder_svg_tag: 'crail__img crail__img--placeholder' }}
+                </span>
+              </span>
+            </span>
+          </li>
+        {%- endfor -%}
+      {%- endif -%}
+    </ul>
+  </div>
+
+  <div class="crail__foot">
+    <p class="crail__caption" aria-hidden="true">
+      <span class="crail__caption-title" ref="captionTitle"></span>
+      <span class="crail__caption-price" ref="captionPrice"></span>
+    </p>
+
+    <div class="crail__progress" aria-hidden="true">
+      <span class="crail__progress-thumb"></span>
+    </div>
+
+    <div class="crail__aside">
+      {%- if section.settings.side_text != blank -%}
+        <p class="crail__aside-text">{{ section.settings.side_text | escape | newline_to_br }}</p>
+      {%- endif -%}
+      {%- if section.settings.link_label != blank and link_url != blank -%}
+        <a class="crail__link" href="{{ link_url }}">
+          {{- section.settings.link_label | escape -}}
+          <svg class="crail__arrow" viewBox="0 0 16 10" aria-hidden="true" focusable="false">
+            <path d="M0 5h14M10 1l4 4-4 4" />
+          </svg>
+        </a>
+      {%- endif -%}
+    </div>
+  </div>
+</clothing-rail>
+
+{% stylesheet %}
+  .crail {
+    --crail-rail: var(--color-foreground);
+    --crail-item: calc(clamp(7rem, 10.5vw, 11.5rem) * var(--crail-size, 1));
+    --crail-gap: calc(var(--crail-spacing, -16) * 1px);
+    --crail-hook: 3.25rem;
+    --crail-ease: cubic-bezier(0.16, 1, 0.3, 1);
+    /* Phones draw the rail at half depth (see clothing-rail.js) and cap how
+       far the centre garment grows so it never swallows its neighbours. */
+    --crail-sag-px: calc(var(--crail-sag) * 1px);
+    --crail-s: var(--crail-scale);
+
+    row-gap: clamp(1.5rem, 3vw, 2.5rem);
+    overflow-x: clip;
+  }
+
+  .crail__heading {
+    margin: 0;
+    text-align: center;
+    font-family: var(--font-heading--family);
+    font-size: var(--font-h2--size);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  :is([dir='rtl'], :lang(ar)) .crail__heading {
+    letter-spacing: 0;
+  }
+
+  /* The rail runs edge to edge; header and footer stay in the page column. */
+  .crail__stage {
+    grid-column: 1 / -1;
+    position: relative;
+  }
+
+  .crail__rail {
+    position: absolute;
+    inset: 0 0 auto;
+    width: 100%;
+    height: calc(var(--crail-sag-px) + 4px);
+    overflow: visible;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .crail__rail path {
+    fill: none;
+    stroke: var(--crail-rail);
+    stroke-width: 3px;
+    stroke-linecap: round;
+  }
+
+  .crail__rail :is(.crail__rail-shade, .crail__rail-shine) {
+    display: none;
+  }
+
+  /* Chrome: a darker tube, a soft underside and a thin highlight on top. */
+  .crail--chrome .crail__rail .crail__rail-tube {
+    stroke: #8b9097;
+    stroke-width: 6px;
+  }
+
+  .crail--chrome .crail__rail :is(.crail__rail-shade, .crail__rail-shine) {
+    display: inline;
+  }
+
+  .crail--chrome .crail__rail .crail__rail-shade {
+    stroke: rgb(0 0 0 / 0.28);
+    stroke-width: 1.5px;
+    translate: 0 2px;
+  }
+
+  .crail--chrome .crail__rail .crail__rail-shine {
+    stroke: rgb(255 255 255 / 0.85);
+    stroke-width: 1.5px;
+    translate: 0 -1.25px;
+  }
+
+  .crail__track {
+    display: flex;
+    align-items: flex-start;
+    margin: 0;
+    /* Room for the first and last garment to reach the centre, and for the
+       focused one to grow downwards. */
+    padding: 0 calc(50% - var(--crail-item) / 2 - var(--crail-gap) / 2)
+      calc(var(--crail-sag-px) + var(--crail-media-h, var(--crail-item) * 1.34) * (var(--crail-s) - 1) + 1rem);
+    list-style: none;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    cursor: grab;
+  }
+
+  .crail__track::-webkit-scrollbar {
+    display: none;
+  }
+
+  .crail__track.is-dragging {
+    scroll-snap-type: none;
+    cursor: grabbing;
+  }
+
+  .crail__item {
+    --drop: 0px;
+    --focus: 0;
+
+    flex: 0 0 var(--crail-item);
+    /* Flex gap cannot go negative; half-margins either side can. */
+    margin-inline: calc(var(--crail-gap) / 2);
+    scroll-snap-align: center;
+    position: relative;
+    z-index: var(--z, 1);
+    translate: 0 var(--drop);
+    perspective: 900px;
+  }
+
+  .crail__garment {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+    transform-origin: 50% 0;
+    scale: calc(1 + (var(--crail-s) - 1) * var(--focus));
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .crail__garment:focus-visible {
+    outline: none;
+  }
+
+  .crail__garment:focus-visible .crail__media {
+    outline: 2px solid var(--color-foreground);
+    outline-offset: 6px;
+    border-radius: 2px;
+  }
+
+  /* Pivots on the hook: `rotate` is the lean from scrolling, `transform`
+     carries the hover turn so the two never overwrite each other. */
+  .crail__swing {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transform-origin: 50% 0;
+    transform-style: preserve-3d;
+    rotate: var(--crail-lean, 0deg);
+    transition: rotate 900ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* The hanger sits in front of the photo (its blank top is trimmed under
+     it), so the hook reads as coming out of the collar. In this 3D context
+     z-index is ignored; a small Z offset does the layering. */
+  .crail__hook {
+    position: relative;
+    width: calc(var(--crail-hook) * 0.84);
+    height: var(--crail-hook);
+    flex: none;
+    margin-block-start: -0.55rem;
+    overflow: visible;
+    translate: 0 0 2px;
+  }
+
+  .crail__hook path {
+    fill: none;
+    stroke: var(--crail-rail);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .crail__hook .crail__hook-shoulders {
+    stroke-width: 2.5;
+  }
+
+  .crail--chrome .crail__hook path {
+    stroke: var(--crail-metal);
+    filter: drop-shadow(0 1px 0.5px rgb(0 0 0 / 0.25));
+  }
+
+  .crail--chrome .crail__hook .crail__hook-shoulders {
+    stroke: #6f747b;
+  }
+
+  .crail__media {
+    position: relative;
+    display: block;
+    width: 100%;
+    /* Pull the photo up under the hanger by its blank top margin. */
+    margin-block-start: calc(-0.35rem - var(--crail-trim, 0) * 1% / var(--crail-ratio, 0.75));
+    aspect-ratio: var(--crail-ratio, 3 / 4);
+  }
+
+  .crail__img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: 50% 0;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  /* Blend the whole hanging piece: the image itself sits inside transformed
+     layers, where multiply would only see a transparent backdrop. */
+  .crail--blend .crail__item {
+    mix-blend-mode: multiply;
+  }
+
+  /* Studio backgrounds are rarely pure white; lift them to white so the
+     multiply above can make them vanish. */
+  .crail--blend .crail__img {
+    filter: brightness(1.05) contrast(1.03);
+  }
+
+  /* Hover turns the garment on its hook to its second image: the front
+     goes edge-on, then the back comes round from the other side. */
+  .crail__face--back {
+    position: absolute;
+    inset: 0;
+    transform: rotateY(-90deg);
+  }
+
+  .crail__item--flip.is-flipped .crail__face:not(.crail__face--back) {
+    transform: rotateY(90deg);
+  }
+
+  .crail__item--flip.is-flipped .crail__face--back {
+    transform: rotateY(0deg);
+  }
+
+  .crail__img--placeholder {
+    fill: rgb(var(--color-foreground-rgb) / 0.35);
+  }
+
+  .crail__tag {
+    position: absolute;
+    inset-block-start: calc(var(--crail-hook) * 0.62);
+    inset-inline-start: calc(50% + 0.35rem);
+    z-index: 1;
+    padding: 0.2em 0.45em;
+    border: 1px solid rgb(var(--color-foreground-rgb) / 0.2);
+    border-radius: 2px;
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-body--family);
+    font-size: 0.625rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    white-space: nowrap;
+    transform-origin: 50% -0.75rem;
+    rotate: -6deg;
+    translate: 0 0 3px;
+    backface-visibility: hidden;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.08), 0 4px 10px -4px rgb(0 0 0 / 0.15);
+  }
+
+  .crail__tag::before {
+    content: '';
+    position: absolute;
+    inset-block-end: 100%;
+    inset-inline-start: 0.35rem;
+    width: 1px;
+    height: 0.7rem;
+    background: rgb(var(--color-foreground-rgb) / 0.45);
+  }
+
+  /* Footer: focused garment, progress, and the way out to the collection. */
+  .crail__foot {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: end;
+    gap: 1rem;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
+  .crail__caption {
+    display: grid;
+    margin: 0;
+    min-height: 2.8em;
+  }
+
+  .crail__caption-title {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  .crail__caption-price {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+  }
+
+  .crail__progress {
+    --track: 7.5rem;
+    --thumb: 2.25rem;
+
+    position: relative;
+    width: var(--track);
+    height: 2px;
+    margin-block-end: 0.6rem;
+    background: rgb(var(--color-foreground-rgb) / 0.15);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .crail__progress-thumb {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: var(--thumb);
+    background: var(--color-foreground);
+    border-radius: inherit;
+    translate: calc(var(--crail-progress, 0) * (var(--track) - var(--thumb)) * var(--crail-dir, 1)) 0;
+  }
+
+  .crail__aside {
+    display: grid;
+    justify-items: end;
+    gap: 0.5rem;
+    text-align: end;
+  }
+
+  .crail__aside-text {
+    margin: 0;
+    max-width: 28ch;
+    font-weight: 600;
+  }
+
+  .crail__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+    color: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 0.3em;
+    text-decoration-thickness: 1px;
+  }
+
+  .crail__arrow {
+    width: 1em;
+    height: 0.65em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    transition: translate 300ms var(--crail-ease);
+  }
+
+  .crail__link:hover .crail__arrow {
+    translate: 0.2em 0;
+  }
+
+  [dir='rtl'] .crail__arrow {
+    scale: -1 1;
+  }
+
+  [dir='rtl'] .crail__link:hover .crail__arrow {
+    translate: -0.2em 0;
+  }
+
+  /* Phones: one centred column under the rail — the garment you are on,
+     where you are on the rail, then the way to the collection. */
+  @media (max-width: 749px) {
+    .crail {
+      --crail-item: calc(36vw * var(--crail-size, 1));
+      --crail-gap: calc(var(--crail-spacing, -16) * 0.6px);
+      --crail-hook: 2.75rem;
+      --crail-sag-px: calc(var(--crail-sag) * 0.5px);
+      --crail-s: min(var(--crail-scale), 1.2);
+
+      row-gap: 1.25rem;
+    }
+
+    .crail__heading {
+      font-size: clamp(1.75rem, 8vw, var(--font-h2--size));
+    }
+
+    .crail__tag {
+      font-size: 0.6875rem;
+    }
+
+    .crail__foot {
+      grid-template-columns: minmax(0, 1fr);
+      justify-items: center;
+      gap: 0.875rem;
+      text-align: center;
+    }
+
+    .crail__caption {
+      justify-items: center;
+      max-width: 32ch;
+      min-height: 0;
+      font-size: 0.875rem;
+    }
+
+    .crail__progress {
+      order: -1;
+      margin: 0;
+    }
+
+    .crail__aside {
+      justify-items: center;
+      gap: 0.375rem;
+      text-align: center;
+    }
+
+    .crail__aside-text {
+      max-width: 34ch;
+      font-weight: 400;
+      opacity: 0.7;
+    }
+
+    .crail__link {
+      min-height: 44px;
+      font-size: 0.8125rem;
+    }
+  }
+
+  /* Tablets: a little more room per garment than the desktop clamp gives. */
+  @media (min-width: 750px) and (max-width: 1099px) {
+    .crail {
+      --crail-item: calc(17vw * var(--crail-size, 1));
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .crail__garment {
+      transition: scale 450ms var(--crail-ease);
+    }
+
+    /* Each half waits for the other: out goes ease-in, in comes ease-out. */
+    .crail__face {
+      transition: transform 380ms var(--crail-ease) 260ms;
+    }
+
+    .crail__face--back {
+      transition: transform 260ms cubic-bezier(0.5, 0, 0.75, 0) 0ms;
+    }
+
+    .crail__item--flip.is-flipped .crail__face:not(.crail__face--back) {
+      transition: transform 260ms cubic-bezier(0.5, 0, 0.75, 0) 0ms;
+    }
+
+    .crail__item--flip.is-flipped .crail__face--back {
+      transition: transform 380ms var(--crail-ease) 260ms;
+    }
+
+    .crail__item.is-turning .crail__swing {
+      animation: crail-turn 1.6s var(--crail-ease) both;
+    }
+
+    .crail__item.is-turning .crail__tag {
+      animation: crail-tag 1.6s ease-out both;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .crail__swing {
+      transition: none;
+      rotate: 0deg;
+    }
+  }
+
+  /* A garment turned on its hook: a full spin that unwinds and settles. */
+  @keyframes crail-turn {
+    0% {
+      transform: rotateY(0deg) rotateZ(0deg);
+    }
+    30% {
+      transform: rotateY(200deg) rotateZ(2deg);
+    }
+    55% {
+      transform: rotateY(330deg) rotateZ(-1.5deg);
+    }
+    75% {
+      transform: rotateY(375deg) rotateZ(1deg);
+    }
+    90% {
+      transform: rotateY(355deg) rotateZ(-0.5deg);
+    }
+    100% {
+      transform: rotateY(360deg) rotateZ(0deg);
+    }
+  }
+
+  @keyframes crail-tag {
+    0%,
+    100% {
+      rotate: -6deg;
+    }
+    25% {
+      rotate: 18deg;
+    }
+    50% {
+      rotate: -14deg;
+    }
+    75% {
+      rotate: 4deg;
+    }
+  }
+{% endstylesheet %}
+
+{% schema %}
+{
+  "name": "Clothing rail",
+  "disabled_on": {
+    "groups": ["header", "footer"]
+  },
+  "settings": [
+    {
+      "type": "collection",
+      "id": "collection",
+      "label": "t:settings.collection"
+    },
+    {
+      "type": "range",
+      "id": "max_products",
+      "label": "t:settings.product_count",
+      "min": 4,
+      "max": 24,
+      "step": 1,
+      "default": 10
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Fresh off the rail"
+    },
+    {
+      "type": "textarea",
+      "id": "side_text",
+      "label": "Side text",
+      "default": "Swipe the rail to browse.\nTap a piece to see it up close."
+    },
+    {
+      "type": "text",
+      "id": "link_label",
+      "label": "Link label",
+      "default": "Shop the collection"
+    },
+    {
+      "type": "url",
+      "id": "link_url",
+      "label": "Link",
+      "info": "Leave empty to link to the selected collection."
+    },
+    {
+      "type": "header",
+      "content": "Garment images"
+    },
+    {
+      "type": "paragraph",
+      "content": "Upload a cut-out photo per product in the product's \"Rail image\" metafield (custom.rail_image). Products without one use the image below."
+    },
+    {
+      "type": "select",
+      "id": "image_source",
+      "label": "Image to use",
+      "options": [
+        { "value": "featured", "label": "First image" },
+        { "value": "second", "label": "Second image" },
+        { "value": "last", "label": "Last image" }
+      ],
+      "default": "featured"
+    },
+    {
+      "type": "range",
+      "id": "photo_trim",
+      "label": "Trim photo top",
+      "info": "Removes empty space above the garment so the hanger meets the collar.",
+      "min": 0,
+      "max": 30,
+      "step": 1,
+      "unit": "%",
+      "default": 8
+    },
+    {
+      "type": "checkbox",
+      "id": "hover_second_image",
+      "label": "Turn to second image on hover",
+      "info": "Products with only one image spin on their hook instead.",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "blend_white",
+      "label": "Blend white photo backgrounds",
+      "info": "Lifts near-white photo backgrounds to white and blends them into a light section background.",
+      "default": true
+    },
+    {
+      "type": "header",
+      "content": "Rail"
+    },
+    {
+      "type": "select",
+      "id": "rail_style",
+      "label": "Rail and hanger finish",
+      "options": [
+        { "value": "chrome", "label": "Chrome" },
+        { "value": "colour", "label": "Solid colour" }
+      ],
+      "default": "chrome"
+    },
+    {
+      "type": "range",
+      "id": "sag",
+      "label": "Rail curve",
+      "min": 0,
+      "max": 80,
+      "step": 2,
+      "unit": "px",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "garment_size",
+      "label": "Garment size",
+      "min": 60,
+      "max": 160,
+      "step": 5,
+      "unit": "%",
+      "default": 100
+    },
+    {
+      "type": "range",
+      "id": "garment_spacing",
+      "label": "Garment spacing",
+      "info": "Below zero lets the empty edges of photos overlap so garments hang close together.",
+      "min": -80,
+      "max": 40,
+      "step": 2,
+      "unit": "px",
+      "default": -16
+    },
+    {
+      "type": "range",
+      "id": "focus_scale",
+      "label": "Centre garment size",
+      "min": 100,
+      "max": 160,
+      "step": 5,
+      "unit": "%",
+      "default": 130
+    },
+    {
+      "type": "color",
+      "id": "rail_color",
+      "label": "Rail and hook colour",
+      "default": "{{ settings.color_palette.foreground }}",
+      "info": "Used with the solid colour finish. Ignored when it would be invisible against the background.",
+      "visible_if": "{{ section.settings.rail_style == 'colour' }}"
+    },
+    {
+      "type": "color",
+      "id": "background_color",
+      "label": "t:settings.background_color",
+      "placeholder": "t:settings.default"
+    },
+    {
+      "type": "header",
+      "content": "t:content.padding"
+    },
+    {
+      "type": "range",
+      "id": "padding-block-start",
+      "label": "t:settings.top",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit": "px",
+      "default": 48
+    },
+    {
+      "type": "range",
+      "id": "padding-block-end",
+      "label": "t:settings.bottom",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit": "px",
+      "default": 48
+    }
+  ],
+  "presets": [
+    {
+      "name": "Clothing rail",
+      "category": "t:categories.products"
+    }
+  ]
+}
+{% endschema %}

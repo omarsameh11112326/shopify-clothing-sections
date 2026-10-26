@@ -1,0 +1,1233 @@
+{%- comment -%}
+  Clothing rack — garments hang packed on a straight rail like a real closet.
+  Picking one lifts it off the rack into a centred detail view while the rest
+  of the page blurs behind it: colour tags hang beside the hanger, with size,
+  add to cart and a link to the full product page underneath.
+
+  Image per product, first match wins (same rules as Clothing rail):
+    1. product.metafields.custom.rail_image (cut-out uploaded for the rail)
+    2. the image chosen in "Image to use"
+
+  Option handling: an option whose name mentions colour (colour, color, لون)
+  becomes hanging colour tags; every other option becomes a row of pills.
+
+  Behaviour lives in assets/clothing-rack.js. Without JS each garment still
+  links to its product page.
+{%- endcomment -%}
+
+<script
+  src="{{ 'clothing-rack.js' | asset_url }}"
+  type="module"
+  fetchpriority="low"
+></script>
+
+{% liquid
+  assign collection = section.settings.collection
+  assign max_items = section.settings.max_products
+
+  if section.settings.background_color != blank
+    render 'contrast-override', background_color: section.settings.background_color, section_id: section.id
+  endif
+%}
+
+<div
+  class="section-background{% if section.settings.background_color != blank %} color-custom-{{ section.id }}{% endif %}"
+></div>
+<clothing-rack
+  class="section spacing-style crack{% if section.settings.background_color != blank %} color-custom-{{ section.id }}{% endif %}{% if section.settings.blend_white %} crack--blend{% endif %}"
+  style="
+    {% render 'spacing-style', settings: section.settings %}
+    --crack-size: {{ section.settings.garment_size | divided_by: 100.0 }};
+    --crack-spacing: {{ section.settings.garment_spacing }};
+    --crack-trim: {{ section.settings.photo_trim }};
+    --crack-metal: url(#crack-metal-{{ section.id }});
+  "
+  data-section-id="{{ section.id }}"
+  data-added-label="{{ 'actions.added' | t | escape }}"
+  data-add-label="{{ 'actions.add_to_cart' | t | escape }}"
+  data-sold-out-label="{{ 'blocks.sold_out' | t | escape }}"
+  data-unavailable-label="{{ 'content.unavailable' | t | escape }}"
+>
+  {%- comment -%} One gradient for every hook in this section. {%- endcomment -%}
+  <svg class="crack__defs" width="0" height="0" aria-hidden="true" focusable="false">
+    <linearGradient id="crack-metal-{{ section.id }}" gradientUnits="userSpaceOnUse" x1="14" y1="0" x2="27" y2="0">
+      <stop offset="0" stop-color="#6f747b" />
+      <stop offset="0.45" stop-color="#e4e6e9" />
+      <stop offset="0.6" stop-color="#b9bdc3" />
+      <stop offset="1" stop-color="#5d6168" />
+    </linearGradient>
+  </svg>
+
+  {%- if section.settings.heading != blank -%}
+    <h2 class="crack__heading">{{ section.settings.heading | escape }}</h2>
+  {%- endif -%}
+
+  <div class="crack__wall">
+    <div class="crack__scroller" ref="scroller">
+      <div class="crack__rack">
+        <span class="crack__rail" aria-hidden="true"></span>
+
+        <ul
+          class="crack__list"
+          role="list"
+          aria-label="{{ section.settings.heading | default: collection.title | default: 'Clothing rack' | escape }}"
+        >
+          {%- assign product_data = '' -%}
+            {%- if collection != blank and collection.products_count > 0 -%}
+              {%- for product in collection.products limit: max_items -%}
+                {% liquid
+                  assign image = product.metafields.custom.rail_image.value
+                  if image == blank
+                    case section.settings.image_source
+                      when 'second'
+                        assign image = product.images[1] | default: product.featured_image
+                      when 'last'
+                        assign image = product.images.last | default: product.featured_image
+                      else
+                        assign image = product.featured_image
+                    endcase
+                  endif
+
+                  assign back_image = blank
+                  if section.settings.hover_second_image and product.images.size > 1
+                    assign back_image = product.images[1]
+                    if back_image.id == image.id
+                      assign back_image = product.images[0]
+                    endif
+                  endif
+
+                  assign color_index = -1
+                  for option in product.options_with_values
+                    assign option_name = option.name | downcase
+                    if option_name contains 'colo' or option_name contains 'لون'
+                      assign color_index = forloop.index0
+                    endif
+                  endfor
+
+                  assign price = product.price | money
+                  if product.price_varies
+                    assign price = 'content.price_from' | t: price: price
+                  endif
+                %}
+                {%- capture product_json -%}
+                {%- unless forloop.first -%},{%- endunless -%}
+                {
+                  "title": {{ product.title | json }},
+                  "url": {{ product.url | json }},
+                  "price": {{ price | strip_html | json }},
+                  "front": {% if image != blank %}{{ image | image_url: width: 1400 | json }}{% else %}null{% endif %},
+                  "ratio": {% if image != blank %}{{ image.aspect_ratio }}{% else %}0.75{% endif %},
+                  "back": {% if back_image != blank %}{{ back_image | image_url: width: 1400 | json }}{% else %}null{% endif %},
+                  "colorIndex": {{ color_index }},
+                  "options": [
+                    {%- for option in product.options_with_values -%}
+                      {%- unless forloop.first -%},{%- endunless -%}
+                      {
+                        "name": {{ option.name | json }},
+                        "values": [
+                          {%- for value in option.values -%}
+                            {%- unless forloop.first -%},{%- endunless -%}
+                            { "value": {{ value | json }}, "swatch": {% if value.swatch.color %}{{ value.swatch.color | append: '' | json }}{% else %}null{% endif %} }
+                          {%- endfor -%}
+                        ]
+                      }
+                    {%- endfor -%}
+                  ],
+                  "variants": [
+                    {%- for variant in product.variants -%}
+                      {%- unless forloop.first -%},{%- endunless -%}
+                      {
+                        "id": {{ variant.id }},
+                        "available": {{ variant.available }},
+                        "price": {{ variant.price | money | strip_html | json }},
+                        "options": {{ variant.options | json }},
+                        "image": {% if variant.featured_image %}{{ variant.featured_image | image_url: width: 1400 | json }}{% else %}null{% endif %}
+                      }
+                    {%- endfor -%}
+                  ]
+                }
+                {%- endcapture -%}
+                {%- assign product_data = product_data | append: product_json -%}
+                <li
+                  class="crack__item"
+                  {% if image != blank %}style="--crack-ratio: {{ image.aspect_ratio | at_least: 0.5 | at_most: 1.25 }};"{% endif %}
+                >
+                  <a
+                    class="crack__garment"
+                    href="{{ product.url }}"
+                    data-index="{{ forloop.index0 }}"
+                    aria-haspopup="dialog"
+                    aria-label="{{ product.title | escape }}, {{ price | strip_html | escape }}"
+                  >
+                    {% render 'clothing-rail-hook' %}
+                    <span class="crack__media">
+                      {%- if image != blank -%}
+                        {{
+                          image
+                          | image_url: width: 600
+                          | image_tag:
+                            loading: 'lazy',
+                            sizes: '(min-width: 750px) 12vw, 36vw',
+                            widths: '200, 300, 400, 600',
+                            alt: '',
+                            class: 'crack__img',
+                            draggable: 'false'
+                        }}
+                        {%- if back_image != blank -%}
+                          {{
+                            back_image
+                            | image_url: width: 600
+                            | image_tag:
+                              loading: 'lazy',
+                              sizes: '(min-width: 750px) 12vw, 36vw',
+                              widths: '200, 300, 400, 600',
+                              alt: '',
+                              class: 'crack__img crack__img--back',
+                              draggable: 'false'
+                          }}
+                        {%- endif -%}
+                      {%- else -%}
+                        {{ 'product-apparel-1' | placeholder_svg_tag: 'crack__img crack__img--placeholder' }}
+                      {%- endif -%}
+                    </span>
+                  </a>
+                </li>
+              {%- endfor -%}
+            {%- endif -%}
+
+          {%- if collection == blank or collection.products_count == 0 -%}
+            {%- for i in (1..max_items) -%}
+              <li class="crack__item">
+                <span class="crack__garment crack__garment--placeholder">
+                  {% render 'clothing-rail-hook' %}
+                  <span class="crack__media">
+                    {%- capture placeholder -%}product-apparel-{{ forloop.index | modulo: 4 | plus: 1 }}{%- endcapture -%}
+                    {{ placeholder | placeholder_svg_tag: 'crack__img crack__img--placeholder' }}
+                  </span>
+                </span>
+              </li>
+            {%- endfor -%}
+          {%- endif -%}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  {%- if section.settings.hint != blank -%}
+    <p class="crack__hint">{{ section.settings.hint | escape }}</p>
+  {%- endif -%}
+
+  <script type="application/json" data-crack-products>[{{ product_data | strip }}]</script>
+
+  <dialog
+    class="crack__dialog{% if section.settings.background_color != blank %} color-custom-{{ section.id }}{% endif %}"
+    aria-labelledby="CrackTitle-{{ section.id }}"
+  >
+    <div class="crack__veil" aria-hidden="true"></div>
+    <div class="crack__stage">
+      <button type="button" class="crack__icon-btn crack__close" data-crack-close aria-label="{{ 'actions.close' | t | escape }}">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 3l10 10M13 3 3 13" /></svg>
+      </button>
+      <button type="button" class="crack__icon-btn crack__nav crack__nav--prev" data-crack-step="-1" aria-label="{{ 'content.pagination.previous' | t | escape }}">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M10 3 5 8l5 5" /></svg>
+      </button>
+      <button type="button" class="crack__icon-btn crack__nav crack__nav--next" data-crack-step="1" aria-label="{{ 'content.pagination.next' | t | escape }}">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6 3 5 5-5 5" /></svg>
+      </button>
+
+      <div class="crack__hero" data-crack-hero>
+        <span class="crack__nail" aria-hidden="true"></span>
+        {% render 'clothing-rail-hook' %}
+        <div class="crack__tags" data-crack-tags role="group" hidden></div>
+        <span class="crack__hero-media" data-crack-hero-media>
+          <img class="crack__hero-img crack__face" data-crack-front src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="" width="600" height="800" draggable="false">
+          <img class="crack__hero-img crack__face crack__face--back" data-crack-back src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="" width="600" height="800" draggable="false" hidden>
+        </span>
+      </div>
+
+      <div class="crack__info">
+        <h2 class="crack__title" id="CrackTitle-{{ section.id }}" data-crack-title></h2>
+        <p class="crack__price" data-crack-price></p>
+        <div class="crack__options" data-crack-options></div>
+        {%- if section.settings.show_add_to_cart -%}
+          <button type="button" class="crack__add" data-crack-add>{{ 'actions.add_to_cart' | t }}</button>
+        {%- endif -%}
+        <p class="crack__status" data-crack-status role="status" aria-live="polite"></p>
+        <a class="crack__more" data-crack-more href="#">{{ 'content.view_more_details' | t }}</a>
+      </div>
+    </div>
+  </dialog>
+</clothing-rack>
+
+{% stylesheet %}
+  .crack {
+    --crack-item: calc(clamp(6.5rem, 10vw, 11.5rem) * var(--crack-size, 1));
+    --crack-gap: calc(var(--crack-spacing, -40) * 1px);
+    --crack-hook: 2.6rem;
+    --crack-ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --crack-wall: var(--color-background);
+
+    row-gap: clamp(1rem, 2.5vw, 2rem);
+    overflow-x: clip;
+  }
+
+  .crack__defs {
+    position: absolute;
+  }
+
+  .crack__heading {
+    margin: 0;
+    text-align: center;
+    font-family: var(--font-heading--family);
+    font-size: var(--font-h2--size);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  :is([dir='rtl'], :lang(ar)) .crack__heading {
+    letter-spacing: 0;
+  }
+
+  /* ---------- The rack ---------- */
+
+  .crack__wall {
+    grid-column: 1 / -1;
+    /* A grid item grows to its content by default; without this the rack
+       would widen the section and get clipped instead of scrolling. */
+    min-width: 0;
+  }
+
+  .crack__scroller {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    cursor: grab;
+    /* Room above for hovered garments to lift, and below for shadows. */
+    padding-block: 0.75rem 1.5rem;
+  }
+
+  .crack__scroller.is-dragging {
+    cursor: grabbing;
+    scroll-snap-type: none;
+    user-select: none;
+  }
+
+  .crack__scroller.is-dragging .crack__garment {
+    cursor: grabbing;
+  }
+
+  .crack__scroller::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Sized to its garments, so the rail ends just past the last hanger;
+     centred while it fits, scrollable once it doesn't. */
+  .crack__rack {
+    position: relative;
+    width: max-content;
+    margin-inline: auto;
+    padding-inline: max(var(--page-margin, 20px), 3vw);
+  }
+
+  /* A straight chrome rail with wall brackets at both ends. */
+  .crack__rail {
+    position: absolute;
+    inset-block-start: 0.55rem;
+    inset-inline: calc(max(var(--page-margin, 20px), 3vw) - 1.25rem);
+    height: 5px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #f3f4f6 0%, #b6bac0 35%, #8b9097 70%, #5f646b 100%);
+    box-shadow: 0 2px 3px rgb(0 0 0 / 0.18), 0 8px 18px -8px rgb(0 0 0 / 0.25);
+  }
+
+  .crack__rail::before,
+  .crack__rail::after {
+    content: '';
+    position: absolute;
+    inset-block-start: -0.55rem;
+    width: 4px;
+    height: 1.2rem;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #6f747b, #d9dce0 50%, #6f747b);
+    box-shadow: 0 2px 4px rgb(0 0 0 / 0.2);
+  }
+
+  .crack__rail::before {
+    inset-inline-start: 0.4rem;
+  }
+
+  .crack__rail::after {
+    inset-inline-end: 0.4rem;
+  }
+
+  .crack__list {
+    display: flex;
+    align-items: flex-start;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .crack__item {
+    --shift: 0px;
+
+    flex: 0 0 var(--crack-item);
+    margin-inline: calc(var(--crack-gap) / 2);
+    position: relative;
+  }
+
+  .crack--blend .crack__item {
+    mix-blend-mode: multiply;
+  }
+
+  .crack__garment {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: inherit;
+    text-decoration: none;
+    transform-origin: 50% 0;
+    translate: var(--shift) 0;
+    /* Swing from the hook; the angle comes from the hanger physics. */
+    rotate: var(--swing, 0deg);
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-drag: none;
+    cursor: pointer;
+  }
+
+  /* With JS, hangers sit on a rail the width of the wall and are pulled
+     along it; their offsets come from clothing-rack.js. */
+  .crack--physics .crack__scroller {
+    overflow: visible;
+    scroll-snap-type: none;
+    touch-action: pan-y;
+  }
+
+  .crack--physics .crack__rack {
+    width: auto;
+    margin-inline: 0;
+  }
+
+  .crack--physics .crack__list {
+    justify-content: center;
+  }
+
+  .crack--physics .crack__item {
+    translate: var(--x, 0px) 0;
+  }
+
+  .crack--physics .crack__item.is-held {
+    z-index: 6;
+  }
+
+  .crack--physics .crack__item.is-held .crack__garment {
+    scale: 1.04;
+  }
+
+  .crack__garment.is-lifted {
+    visibility: hidden;
+  }
+
+  .crack__garment:focus-visible {
+    outline: none;
+  }
+
+  .crack__garment:focus-visible .crack__media {
+    outline: 2px solid var(--color-foreground);
+    outline-offset: 4px;
+    border-radius: 2px;
+  }
+
+  /* Hanger, shared with Clothing rail's snippet but styled here. */
+  .crack .crail__hook {
+    position: relative;
+    z-index: 2;
+    width: calc(var(--crack-hook) * 0.84);
+    height: var(--crack-hook);
+    flex: none;
+    overflow: visible;
+  }
+
+  .crack .crail__hook path {
+    fill: none;
+    stroke: var(--crack-metal);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 1px 0.5px rgb(0 0 0 / 0.25));
+  }
+
+  .crack .crail__hook .crail__hook-shoulders {
+    stroke: #6f747b;
+    stroke-width: 2.5;
+  }
+
+  .crack__media {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 100%;
+    margin-block-start: calc(-0.35rem - var(--crack-trim, 0) * 1% / var(--crack-ratio, 0.75));
+    aspect-ratio: var(--crack-ratio, 3 / 4);
+  }
+
+  .crack__img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: 50% 0;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  /* Hover on the rack turns the garment on its hanger to its second image:
+     the first goes edge-on, then the second comes round. */
+  .crack__img--back {
+    position: absolute;
+    inset: 0;
+    transform: rotateY(-90deg);
+  }
+
+  @media (hover: hover) {
+    .crack__item:is(:hover, :has(:focus-visible)) .crack__img:not(.crack__img--back):has(+ .crack__img--back) {
+      transform: rotateY(90deg);
+    }
+
+    .crack__item:is(:hover, :has(:focus-visible)) .crack__img--back {
+      transform: rotateY(0deg);
+    }
+  }
+
+  /* Rack only: lifts near-white to white so the multiply above hides it. The
+     big photo in the detail view cannot blend, so it keeps its own tones. */
+  .crack--blend .crack__img {
+    filter: brightness(1.05) contrast(1.03);
+  }
+
+  .crack__img--placeholder {
+    fill: rgb(var(--color-foreground-rgb) / 0.35);
+  }
+
+  .crack__hint {
+    margin: 0;
+    text-align: center;
+    font-size: 0.8125rem;
+    opacity: 0.65;
+  }
+
+  /* ---------- The detail view ---------- */
+
+  .crack__dialog {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-foreground);
+    overflow: hidden;
+  }
+
+  .crack__dialog::backdrop {
+    background: transparent;
+  }
+
+  html:has(.crack__dialog[open]) {
+    overflow: hidden;
+  }
+
+  /* The page itself goes out of focus behind the picked garment. */
+  .crack__veil {
+    position: fixed;
+    inset: 0;
+    /* A clear blur: the page shows through out of focus, with no wash of colour. */
+    background: transparent;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    opacity: 0;
+    transition: opacity 500ms var(--crack-ease);
+  }
+
+  .crack__dialog.is-open .crack__veil {
+    opacity: 1;
+  }
+
+  .crack__stage {
+    position: relative;
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto auto;
+    justify-items: center;
+    align-content: center;
+    gap: clamp(1rem, 2.5vh, 1.75rem);
+    padding: clamp(1.5rem, 5vh, 3.5rem) clamp(1rem, 4vw, 3rem) clamp(1.5rem, 4vh, 3rem);
+    overflow-y: auto;
+  }
+
+  .crack__hero {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: min(56vh, 40rem);
+    max-width: 100%;
+    aspect-ratio: calc(var(--crack-hero-ratio, 0.75) * 0.88);
+    transform-origin: 50% 0;
+  }
+
+  .crack__nail {
+    width: 0.6rem;
+    height: 0.6rem;
+    flex: none;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #f4f5f7, #8b9097 60%, #4d5157);
+    box-shadow: 0 2px 4px rgb(0 0 0 / 0.3);
+  }
+
+  .crack__hero .crail__hook {
+    --crack-hook: clamp(3rem, 7vh, 4.5rem);
+
+    margin-block-start: -0.5rem;
+  }
+
+  .crack__hero-media {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    margin-block-start: calc(-0.35rem - var(--crack-trim, 0) * 0.6%);
+    filter: drop-shadow(0 28px 30px rgb(0 0 0 / 0.14)) drop-shadow(0 6px 8px rgb(0 0 0 / 0.08));
+  }
+
+  .crack--blend .crack__hero-media {
+    filter: none;
+  }
+
+  .crack__hero-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: 50% 0;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  /* Soft edges, so the photo's own background fades into the blur instead
+     of ending in a hard rectangle. */
+  .crack--blend .crack__hero-media {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 0.6rem, #000 calc(100% - 1.5rem), transparent),
+      linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent);
+    -webkit-mask-composite: source-in;
+    mask-image: linear-gradient(to bottom, transparent, #000 0.6rem, #000 calc(100% - 1.5rem), transparent),
+      linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent);
+    mask-composite: intersect;
+  }
+
+  .crack__face--back {
+    position: absolute;
+    inset: 0;
+    transform: rotateY(-90deg);
+  }
+
+  .crack__hero.is-flipped .crack__face:not(.crack__face--back) {
+    transform: rotateY(90deg);
+  }
+
+  .crack__hero.is-flipped .crack__face--back {
+    transform: rotateY(0deg);
+  }
+
+  /* Colour tags hang on strings beside the hanger, like swing tickets. */
+  .crack__tags {
+    position: absolute;
+    inset-block-start: 1.2rem;
+    inset-inline-start: calc(100% - 1rem);
+    z-index: 2;
+    display: flex;
+    gap: 0.45rem;
+  }
+
+  .crack__tag {
+    --tag-drop: 2.4rem;
+
+    position: relative;
+    width: 1.35rem;
+    height: 2.9rem;
+    margin-block-start: var(--tag-drop);
+    padding: 0;
+    border: 1px solid rgb(0 0 0 / 0.12);
+    border-radius: 3px 3px 4px 4px;
+    background: var(--tag-color, #fff);
+    box-shadow: 0 6px 12px -6px rgb(0 0 0 / 0.35);
+    cursor: pointer;
+    transform-origin: 50% calc(-1 * var(--tag-drop));
+    transition: margin-block-start 400ms var(--crack-ease), rotate 400ms var(--crack-ease);
+  }
+
+  .crack__tag:nth-child(even) {
+    --tag-drop: 3.1rem;
+  }
+
+  /* String up to the hook, and the punched hole it threads through. */
+  .crack__tag::before {
+    content: '';
+    position: absolute;
+    inset-block-end: calc(100% - 0.45rem);
+    inset-inline-start: 50%;
+    width: 1px;
+    height: calc(var(--tag-drop) + 0.45rem);
+    background: rgb(0 0 0 / 0.35);
+  }
+
+  .crack__tag::after {
+    content: '';
+    position: absolute;
+    inset-block-start: 0.3rem;
+    inset-inline-start: calc(50% - 0.15rem);
+    width: 0.3rem;
+    height: 0.3rem;
+    border-radius: 50%;
+    background: var(--crack-wall);
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.2);
+  }
+
+  .crack__tag:hover {
+    rotate: 8deg;
+  }
+
+  .crack__tag[aria-pressed='true'] {
+    --tag-drop: 1.6rem;
+
+    outline: 2px solid var(--color-foreground);
+    outline-offset: 2px;
+  }
+
+  .crack__tag-label {
+    position: absolute;
+    z-index: 1;
+    padding: 0.1rem 0.3rem;
+    border-radius: 2px;
+    background: var(--color-background);
+    inset-block-start: calc(100% + 0.35rem);
+    inset-inline-start: 50%;
+    translate: -50% 0;
+    font-size: 0.625rem;
+    font-weight: 600;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 200ms;
+  }
+
+  .crack__tag:is(:hover, :focus-visible) .crack__tag-label {
+    opacity: 1;
+  }
+
+  .crack__info {
+    display: grid;
+    justify-items: center;
+    gap: 0.6rem;
+    width: min(100%, 26rem);
+    text-align: center;
+  }
+
+  .crack__title {
+    margin: 0;
+    font-family: var(--font-body--family);
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    line-height: 1.3;
+    text-transform: uppercase;
+    text-wrap: balance;
+  }
+
+  :is([dir='rtl'], :lang(ar)) .crack__title {
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .crack__price {
+    display: flex;
+    gap: 0.5em;
+    margin: -0.3rem 0 0;
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+  }
+
+  .crack__options {
+    display: grid;
+    justify-items: center;
+    gap: 0.5rem;
+  }
+
+  /* One segmented pill per non-colour option, as in the reference. */
+  .crack__pills {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 999px;
+    background: rgb(var(--color-foreground-rgb) / 0.07);
+  }
+
+  .crack__pill {
+    min-width: 2.6rem;
+    min-height: 2.25rem;
+    padding: 0 0.85rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 200ms, color 200ms;
+  }
+
+  .crack__pill:hover {
+    background: rgb(var(--color-foreground-rgb) / 0.08);
+  }
+
+  .crack__pill[aria-pressed='true'] {
+    background: var(--color-foreground);
+    color: var(--color-background);
+  }
+
+  .crack__pill.is-unavailable {
+    text-decoration: line-through;
+    opacity: 0.45;
+  }
+
+  .crack__add {
+    min-width: 13rem;
+    min-height: 2.9rem;
+    padding: 0 1.75rem;
+    border: 0;
+    border-radius: 999px;
+    background: var(--color-foreground);
+    color: var(--color-background);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 200ms, scale 200ms var(--crack-ease);
+  }
+
+  .crack__add:active {
+    scale: 0.97;
+  }
+
+  /* Colour, not opacity: the details' fade-in owns opacity. */
+  .crack__add:disabled {
+    cursor: not-allowed;
+    background: rgb(var(--color-foreground-rgb) / 0.3);
+  }
+
+  .crack__add[aria-busy='true'] {
+    background: rgb(var(--color-foreground-rgb) / 0.7);
+  }
+
+  .crack__status {
+    min-height: 1.2em;
+    margin: 0;
+    font-size: 0.75rem;
+  }
+
+  .crack__status:empty {
+    display: none;
+  }
+
+  .crack__more {
+    color: inherit;
+    font-size: 0.75rem;
+    text-decoration: underline;
+    text-underline-offset: 0.3em;
+    text-decoration-thickness: 1px;
+    opacity: 0.8;
+  }
+
+  .crack__icon-btn {
+    position: absolute;
+    z-index: 3;
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border: 1px solid rgb(var(--color-foreground-rgb) / 0.12);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--crack-wall) 80%, transparent);
+    color: inherit;
+    cursor: pointer;
+    transition: background-color 200ms, scale 200ms var(--crack-ease);
+  }
+
+  .crack__icon-btn:hover {
+    background: var(--color-background);
+    scale: 1.06;
+  }
+
+  .crack__icon-btn svg {
+    width: 1rem;
+    height: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .crack__close {
+    inset-block-start: clamp(0.75rem, 3vh, 1.5rem);
+    inset-inline-end: clamp(0.75rem, 3vw, 1.5rem);
+  }
+
+  .crack__nav {
+    inset-block-start: 38%;
+  }
+
+  .crack__nav--prev {
+    inset-inline-start: clamp(0.75rem, 4vw, 3rem);
+  }
+
+  .crack__nav--next {
+    inset-inline-end: clamp(0.75rem, 4vw, 3rem);
+  }
+
+  [dir='rtl'] .crack__nav svg {
+    scale: -1 1;
+  }
+
+  /* Details arrive after the garment lands, one after another. */
+  .crack__dialog :is(.crack__info > *, .crack__tags, .crack__icon-btn) {
+    opacity: 0;
+    translate: 0 0.5rem;
+    transition: opacity 350ms var(--crack-ease), translate 350ms var(--crack-ease);
+  }
+
+  .crack__dialog.is-settled :is(.crack__info > *, .crack__tags, .crack__icon-btn) {
+    opacity: 1;
+    translate: 0 0;
+  }
+
+  .crack__dialog.is-settled .crack__info > :nth-child(2) {
+    transition-delay: 60ms;
+  }
+
+  .crack__dialog.is-settled .crack__info > :nth-child(3) {
+    transition-delay: 120ms;
+  }
+
+  .crack__dialog.is-settled .crack__info > :nth-child(n + 4) {
+    transition-delay: 180ms;
+  }
+
+  /* ---------- Phones ---------- */
+  @media (max-width: 749px) {
+    .crack {
+      --crack-item: calc(30vw * var(--crack-size, 1));
+      --crack-gap: calc(var(--crack-spacing, -40) * 0.6px);
+      --crack-hook: 2.2rem;
+    }
+
+    .crack__scroller {
+      scroll-snap-type: x proximity;
+    }
+
+    .crack__item {
+      scroll-snap-align: center;
+    }
+
+    .crack__stage {
+      align-content: start;
+      padding-block-start: 4rem;
+    }
+
+    .crack__hero {
+      height: min(48svh, 28rem);
+    }
+
+    .crack__tags {
+      inset-inline-start: auto;
+      inset-inline-end: -0.25rem;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .crack__tag,
+    .crack__tag:nth-child(even) {
+      --tag-drop: 0.6rem;
+
+      width: 1.15rem;
+      height: 2.3rem;
+    }
+
+    .crack__tag[aria-pressed='true'] {
+      --tag-drop: 0.6rem;
+
+      translate: -0.4rem 0;
+    }
+
+    .crack__tag::before {
+      display: none;
+    }
+
+    .crack__tag-label {
+      display: none;
+    }
+
+    .crack__nav {
+      inset-block-start: calc(4rem + min(25svh, 15rem));
+      width: 2.5rem;
+      height: 2.5rem;
+    }
+
+    .crack__nav--prev {
+      inset-inline-start: 0.5rem;
+    }
+
+    .crack__nav--next {
+      inset-inline-end: 0.5rem;
+    }
+
+    .crack__add {
+      width: 100%;
+    }
+  }
+
+  /* Hover: the garment slides forward on the rail and its neighbours part. */
+  @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    /* Each half of the turn waits for the other, in both directions. */
+    .crack__img {
+      transition: transform 340ms var(--crack-ease) 220ms;
+    }
+
+    .crack__img--back {
+      transition: transform 220ms cubic-bezier(0.5, 0, 0.75, 0) 0ms;
+    }
+
+    .crack__item:is(:hover, :has(:focus-visible)) .crack__img {
+      transition: transform 220ms cubic-bezier(0.5, 0, 0.75, 0) 0ms;
+    }
+
+    .crack__item:is(:hover, :has(:focus-visible)) .crack__img--back {
+      transition: transform 340ms var(--crack-ease) 220ms;
+    }
+
+    .crack__garment {
+      transition: translate 450ms var(--crack-ease), scale 450ms var(--crack-ease);
+    }
+
+    .crack__item:hover {
+      z-index: 5;
+    }
+
+    .crack__item:hover .crack__garment {
+      scale: 1.07;
+    }
+
+    .crack__item:hover + .crack__item {
+      --shift: calc(1rem * var(--crack-dir, 1));
+    }
+
+    .crack__item:hover + .crack__item + .crack__item {
+      --shift: calc(0.4rem * var(--crack-dir, 1));
+    }
+
+    .crack__item:has(+ .crack__item:hover) {
+      --shift: calc(-1rem * var(--crack-dir, 1));
+    }
+
+    .crack__item:has(+ .crack__item + .crack__item:hover) {
+      --shift: calc(-0.4rem * var(--crack-dir, 1));
+    }
+  }
+
+  [dir='rtl'] .crack {
+    --crack-dir: -1;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .crack__face {
+      transition: transform 380ms var(--crack-ease) 260ms;
+    }
+
+    .crack__face--back {
+      transition: transform 260ms cubic-bezier(0.5, 0, 0.75, 0) 0ms;
+    }
+
+    .crack__hero.is-flipped .crack__face:not(.crack__face--back) {
+      transition: transform 260ms cubic-bezier(0.5, 0, 0.75, 0) 0ms;
+    }
+
+    .crack__hero.is-flipped .crack__face--back {
+      transition: transform 380ms var(--crack-ease) 260ms;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .crack__veil,
+    .crack__dialog :is(.crack__info > *, .crack__tags, .crack__icon-btn) {
+      transition-duration: 1ms;
+      transition-delay: 0ms;
+    }
+  }
+{% endstylesheet %}
+
+{% schema %}
+{
+  "name": "Clothing rack",
+  "disabled_on": {
+    "groups": ["header", "footer"]
+  },
+  "settings": [
+    {
+      "type": "collection",
+      "id": "collection",
+      "label": "t:settings.collection"
+    },
+    {
+      "type": "range",
+      "id": "max_products",
+      "label": "t:settings.product_count",
+      "min": 3,
+      "max": 24,
+      "step": 1,
+      "default": 12
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading"
+    },
+    {
+      "type": "text",
+      "id": "hint",
+      "label": "Hint under the rack",
+      "default": "Pick a piece off the rack"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_add_to_cart",
+      "label": "Show add to cart",
+      "default": true
+    },
+    {
+      "type": "header",
+      "content": "Garment images"
+    },
+    {
+      "type": "paragraph",
+      "content": "Upload a cut-out photo per product in the product's \"Rail image\" metafield (custom.rail_image). Products without one use the image below."
+    },
+    {
+      "type": "select",
+      "id": "image_source",
+      "label": "Image to use",
+      "options": [
+        { "value": "featured", "label": "First image" },
+        { "value": "second", "label": "Second image" },
+        { "value": "last", "label": "Last image" }
+      ],
+      "default": "featured"
+    },
+    {
+      "type": "range",
+      "id": "photo_trim",
+      "label": "Trim photo top",
+      "info": "Removes empty space above the garment so the hanger meets the collar.",
+      "min": 0,
+      "max": 30,
+      "step": 1,
+      "unit": "%",
+      "default": 8
+    },
+    {
+      "type": "checkbox",
+      "id": "hover_second_image",
+      "label": "Turn to second image on hover",
+      "info": "On the rack and in the detail view. Products with one image just slide forward.",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "blend_white",
+      "label": "Remove plain photo backgrounds",
+      "info": "Blends white photo backgrounds into the rack, and cuts plain studio backgrounds out of the large photo so it floats over the blur. Photos already uploaded as transparent PNGs are left as they are.",
+      "default": true
+    },
+    {
+      "type": "header",
+      "content": "Rack"
+    },
+    {
+      "type": "range",
+      "id": "garment_size",
+      "label": "Garment size",
+      "min": 60,
+      "max": 160,
+      "step": 5,
+      "unit": "%",
+      "default": 100
+    },
+    {
+      "type": "range",
+      "id": "garment_spacing",
+      "label": "Garment spacing",
+      "info": "Below zero packs garments tight, like a full closet.",
+      "min": -80,
+      "max": 40,
+      "step": 2,
+      "unit": "px",
+      "default": -40
+    },
+    {
+      "type": "color",
+      "id": "background_color",
+      "label": "t:settings.background_color",
+      "placeholder": "t:settings.default"
+    },
+    {
+      "type": "header",
+      "content": "t:content.padding"
+    },
+    {
+      "type": "range",
+      "id": "padding-block-start",
+      "label": "t:settings.top",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit": "px",
+      "default": 48
+    },
+    {
+      "type": "range",
+      "id": "padding-block-end",
+      "label": "t:settings.bottom",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit": "px",
+      "default": 48
+    }
+  ],
+  "presets": [
+    {
+      "name": "Clothing rack",
+      "category": "t:categories.products"
+    }
+  ]
+}
+{% endschema %}
