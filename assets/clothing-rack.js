@@ -203,6 +203,11 @@ class HangerRail {
     this.frame = 0;
     this.last = 0;
     this.reduced = prefersReducedMotion();
+    this.rail = /** @type {HTMLElement | null} */ (rack.querySelector('.crack__rail'));
+    this.curveDepth = Number(rack.closest('[data-curve]')?.getAttribute('data-curve')) || 0;
+    this.curve = 0;
+    this.railLeft = 0;
+    this.railWidth = 1;
     this.measure(true);
     this.render();
   }
@@ -226,6 +231,10 @@ class HangerRail {
     const width = this.rack.clientWidth;
     const itemWidth = this.items[0].offsetWidth || 1;
     const edge = itemWidth * 0.2;
+    // The rail's curve, matched to the CSS (half as deep on phones).
+    this.curve = this.curveDepth * (matchMedia('(max-width: 749px)').matches ? 0.5 : 1);
+    this.railLeft = this.rail?.offsetLeft ?? 0;
+    this.railWidth = this.rail?.offsetWidth || width;
     const left = pad + edge;
     const right = Math.max(left, width - pad - edge);
     const oldLeft = this.left;
@@ -397,6 +406,9 @@ class HangerRail {
   render() {
     this.items.forEach((item, i) => {
       item.style.setProperty('--x', `${(this.x[i] - this.base[i]).toFixed(2)}px`);
+      // Ride the curve: a quadratic sag, deepest in the middle of the rail.
+      const u = Math.min(1, Math.max(0, (this.x[i] - this.railLeft) / this.railWidth));
+      item.style.setProperty('--y', `${(4 * this.curve * u * (1 - u)).toFixed(2)}px`);
       item.style.setProperty('--swing', `${this.angle[i].toFixed(2)}deg`);
     });
   }

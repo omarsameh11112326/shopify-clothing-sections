@@ -31,6 +31,7 @@ Then in the theme editor: **Add section → Clothing rack** or **Clothing rail**
 - Optional product metafield `custom.rail_image` (file → image) for a cut-out photo per product. Both sections use it before the product's own images.
 
 ## Settings worth knowing
+- **Rail curve** (rack): how deep the rail sags; 0 keeps it straight.
 - **Trim photo top:** pulls the photo up so the hanger meets the collar.
 - **Garment size / Garment spacing:** how big the garments are and how tightly they pack.
 - **Remove plain photo backgrounds** (rack) / **Blend white photo backgrounds** (rail).

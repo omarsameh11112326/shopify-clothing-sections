@@ -40,9 +40,11 @@
     --crack-size: {{ section.settings.garment_size | divided_by: 100.0 }};
     --crack-spacing: {{ section.settings.garment_spacing }};
     --crack-trim: {{ section.settings.photo_trim }};
+    --crack-curve: {{ section.settings.rail_curve }};
     --crack-metal: url(#crack-metal-{{ section.id }});
   "
   data-section-id="{{ section.id }}"
+  data-curve="{{ section.settings.rail_curve }}"
   data-added-label="{{ 'actions.added' | t | escape }}"
   data-add-label="{{ 'actions.add_to_cart' | t | escape }}"
   data-sold-out-label="{{ 'blocks.sold_out' | t | escape }}"
@@ -65,7 +67,21 @@
   <div class="crack__wall">
     <div class="crack__scroller" ref="scroller">
       <div class="crack__rack">
-        <span class="crack__rail" aria-hidden="true"></span>
+        <span class="crack__rail{% if section.settings.rail_curve > 0 %} crack__rail--curved{% endif %}" aria-hidden="true">
+          {%- if section.settings.rail_curve > 0 -%}
+            {%- assign rail_control = section.settings.rail_curve | times: 2 | plus: 3 -%}
+            <svg
+              class="crack__rail-curve"
+              viewBox="0 0 100 {{ section.settings.rail_curve | plus: 6 }}"
+              preserveAspectRatio="none"
+              focusable="false"
+            >
+              <path class="crack__rail-tube" d="M0 3 Q50 {{ rail_control }} 100 3" vector-effect="non-scaling-stroke" />
+              <path class="crack__rail-shade" d="M0 3 Q50 {{ rail_control }} 100 3" vector-effect="non-scaling-stroke" />
+              <path class="crack__rail-shine" d="M0 3 Q50 {{ rail_control }} 100 3" vector-effect="non-scaling-stroke" />
+            </svg>
+          {%- endif -%}
+        </span>
 
         <ul
           class="crack__list"
@@ -304,7 +320,7 @@
     scrollbar-width: none;
     cursor: grab;
     /* Room above for hovered garments to lift, and below for shadows. */
-    padding-block: 0.75rem 1.5rem;
+    padding-block: 0.75rem calc(1.5rem + var(--crack-curve-px, 0px));
   }
 
   .crack__scroller.is-dragging {
@@ -339,6 +355,49 @@
     border-radius: 3px;
     background: linear-gradient(180deg, #f3f4f6 0%, #b6bac0 35%, #8b9097 70%, #5f646b 100%);
     box-shadow: 0 2px 3px rgb(0 0 0 / 0.18), 0 8px 18px -8px rgb(0 0 0 / 0.25);
+  }
+
+  /* Curved: the bar is drawn as an SVG sag between the two brackets. The
+     depth halves on phones (--crack-curve-px), and clothing-rack.js drops
+     each hanger onto the curve wherever it is. */
+  .crack {
+    --crack-curve-px: calc(var(--crack-curve, 0) * 1px);
+  }
+
+  .crack__rail--curved {
+    background: none;
+    box-shadow: none;
+  }
+
+  .crack__rail-curve {
+    position: absolute;
+    inset-block-start: -0.5px;
+    inset-inline: 0;
+    width: 100%;
+    height: calc(var(--crack-curve-px) + 6px);
+    overflow: visible;
+  }
+
+  .crack__rail-curve path {
+    fill: none;
+    stroke-linecap: round;
+  }
+
+  .crack__rail-tube {
+    stroke: #8b9097;
+    stroke-width: 5px;
+  }
+
+  .crack__rail-shade {
+    stroke: rgb(0 0 0 / 0.28);
+    stroke-width: 1.5px;
+    translate: 0 1.75px;
+  }
+
+  .crack__rail-shine {
+    stroke: rgb(255 255 255 / 0.85);
+    stroke-width: 1.5px;
+    translate: 0 -1.25px;
   }
 
   .crack__rail::before,
@@ -414,7 +473,7 @@
   }
 
   .crack--physics .crack__item {
-    translate: var(--x, 0px) 0;
+    translate: var(--x, 0px) var(--y, 0px);
   }
 
   .crack--physics .crack__item.is-held {
@@ -936,6 +995,7 @@
   /* ---------- Phones ---------- */
   @media (max-width: 749px) {
     .crack {
+      --crack-curve-px: calc(var(--crack-curve, 0) * 0.5px);
       --crack-item: calc(30vw * var(--crack-size, 1));
       --crack-gap: calc(var(--crack-spacing, -40) * 0.6px);
       --crack-hook: 2.2rem;
@@ -1170,6 +1230,17 @@
     {
       "type": "header",
       "content": "Rack"
+    },
+    {
+      "type": "range",
+      "id": "rail_curve",
+      "label": "Rail curve",
+      "info": "0 keeps the rail straight.",
+      "min": 0,
+      "max": 80,
+      "step": 2,
+      "unit": "px",
+      "default": 30
     },
     {
       "type": "range",
